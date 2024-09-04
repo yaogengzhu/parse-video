@@ -4,9 +4,11 @@ import (
 	"context"
 	"embed"
 	"html/template"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"time"
@@ -76,6 +78,40 @@ func main() {
 		}
 
 		c.JSON(200, jsonRes)
+	})
+
+	r.GET("/video/download", func(c *gin.Context) {
+		targetURL := c.Query("url")
+		if targetURL == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Missing 'url' query parameter"})
+			return
+		}
+
+		// 解析目标 URL
+		parsedURL, err := url.Parse(targetURL)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid URL"})
+			return
+		}
+
+		// 创建转发请求
+		resp, err := http.Get(parsedURL.String())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error fetching the URL"})
+			return
+		}
+		defer resp.Body.Close()
+		// 将响应头复制到客户端
+		for key, values := range resp.Header {
+			for _, value := range values {
+				c.Writer.Header().Add(key, value)
+			}
+		}
+		// 将状态码复制到客户端
+		c.Writer.WriteHeader(resp.StatusCode)
+
+		// 将响应体复制到客户端
+		io.Copy(c.Writer, resp.Body)
 	})
 
 	srv := &http.Server{
